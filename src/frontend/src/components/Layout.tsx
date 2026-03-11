@@ -1,49 +1,54 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
+  ClipboardList,
   CreditCard,
   HeadphonesIcon,
   LayoutDashboard,
   LogOut,
   Menu,
+  ShieldAlert,
   ShieldCheck,
   ShoppingCart,
+  Store,
   Users,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import type { Page } from "../App";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
 
 interface NavItem {
   id: Page;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  special?: boolean;
 }
 
 const navItems: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "orders", label: "Orders", icon: ShoppingCart },
   { id: "partners", label: "Partners", icon: Users },
+  { id: "submissions", label: "Submissions", icon: ClipboardList },
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "customerservice", label: "Customer Service", icon: HeadphonesIcon },
+  { id: "perfstore", label: "Perf Store", icon: Store },
+  { id: "superadmin", label: "Super Admin", icon: ShieldAlert, special: true },
 ];
 
 interface LayoutProps {
   currentPage: Page;
   onNavigate: (page: Page) => void;
+  onLogout: () => void;
   children: React.ReactNode;
 }
 
 export default function Layout({
   currentPage,
   onNavigate,
+  onLogout,
   children,
 }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { clear, identity } = useInternetIdentity();
-  const principal = identity?.getPrincipal().toString();
-  const shortPrincipal = principal ? `${principal.slice(0, 8)}...` : "";
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -52,8 +57,7 @@ export default function Layout({
         <SidebarContent
           currentPage={currentPage}
           onNavigate={onNavigate}
-          onLogout={clear}
-          shortPrincipal={shortPrincipal}
+          onLogout={onLogout}
         />
       </aside>
 
@@ -92,8 +96,7 @@ export default function Layout({
             onNavigate(p);
             setMobileOpen(false);
           }}
-          onLogout={clear}
-          shortPrincipal={shortPrincipal}
+          onLogout={onLogout}
         />
       </aside>
 
@@ -110,20 +113,32 @@ export default function Layout({
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1">
             <ShieldCheck className="h-5 w-5 text-sidebar-primary" />
             <span className="font-display font-bold text-sidebar-foreground text-base">
               Lema Admin
             </span>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onLogout}
+            data-ocid="nav.mobile.logout.button"
+            className="text-sidebar-foreground/70 hover:bg-destructive/20 hover:text-destructive gap-1.5 text-xs"
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="hidden xs:inline">Sign Out</span>
+          </Button>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="animate-fade-in">{children}</div>
+        <main className="flex-1 overflow-hidden flex flex-col">
+          <div className="animate-fade-in flex-1 min-h-0 flex flex-col">
+            {children}
+          </div>
         </main>
 
         {/* Mobile bottom nav */}
-        <nav className="md:hidden flex items-center bg-sidebar border-t border-sidebar-border">
+        <nav className="md:hidden flex items-center bg-sidebar border-t border-sidebar-border overflow-x-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = currentPage === item.id;
@@ -134,10 +149,14 @@ export default function Layout({
                 onClick={() => onNavigate(item.id)}
                 data-ocid={`nav.${item.id}.link`}
                 className={cn(
-                  "flex-1 flex flex-col items-center gap-1 py-2 px-1 text-xs transition-colors",
+                  "flex-1 min-w-[60px] flex flex-col items-center gap-1 py-2 px-1 text-xs transition-colors",
                   active
-                    ? "text-sidebar-primary"
-                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground",
+                    ? item.special
+                      ? "text-amber-400"
+                      : "text-sidebar-primary"
+                    : item.special
+                      ? "text-amber-500/60 hover:text-amber-400"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground",
                 )}
               >
                 <Icon className="h-5 w-5" />
@@ -155,13 +174,14 @@ function SidebarContent({
   currentPage,
   onNavigate,
   onLogout,
-  shortPrincipal,
 }: {
   currentPage: Page;
   onNavigate: (p: Page) => void;
   onLogout: () => void;
-  shortPrincipal: string;
 }) {
+  const regularItems = navItems.filter((i) => !i.special);
+  const specialItems = navItems.filter((i) => i.special);
+
   return (
     <>
       {/* Logo */}
@@ -186,7 +206,7 @@ function SidebarContent({
         <p className="px-3 mb-2 text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold">
           Navigation
         </p>
-        {navItems.map((item) => {
+        {regularItems.map((item) => {
           const Icon = item.icon;
           const active = currentPage === item.id;
           return (
@@ -207,27 +227,44 @@ function SidebarContent({
             </button>
           );
         })}
+
+        {/* Separator before super admin */}
+        <div className="my-2 border-t border-sidebar-border/50" />
+        <p className="px-3 mb-1 text-[10px] uppercase tracking-widest text-amber-500/50 font-semibold">
+          Admin Control
+        </p>
+        {specialItems.map((item) => {
+          const Icon = item.icon;
+          const active = currentPage === item.id;
+          return (
+            <button
+              type="button"
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              data-ocid={`nav.${item.id}.link`}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-150",
+                active
+                  ? "bg-amber-500/20 text-amber-400"
+                  : "text-amber-500/60 hover:bg-amber-500/10 hover:text-amber-400",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
 
       {/* Footer */}
       <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
-        {shortPrincipal && (
-          <div className="px-3 py-2 rounded-md bg-sidebar-accent">
-            <p className="text-[10px] text-sidebar-foreground/40 uppercase tracking-wider">
-              Principal
-            </p>
-            <p className="text-xs text-sidebar-foreground/80 font-mono truncate">
-              {shortPrincipal}
-            </p>
-          </div>
-        )}
         <button
           type="button"
           onClick={onLogout}
           data-ocid="nav.logout.button"
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-sidebar-foreground/70 hover:bg-destructive/20 hover:text-destructive transition-colors"
+          className="w-full flex items-center justify-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-semibold bg-destructive/15 text-destructive border border-destructive/30 hover:bg-destructive hover:text-white transition-all duration-200 group"
         >
-          <LogOut className="h-4 w-4" />
+          <LogOut className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
           Sign Out
         </button>
       </div>

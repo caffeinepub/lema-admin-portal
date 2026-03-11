@@ -4,11 +4,16 @@ import {
   Clock,
   CreditCard,
   HeadphonesIcon,
+  Info,
   ShoppingCart,
   TrendingUp,
   Users,
+  X,
 } from "lucide-react";
+import { useState } from "react";
 import { useDashboardStats } from "../hooks/useQueries";
+import { getLastLoginTime } from "../lib/sessionStore";
+import * as sessionStore from "../lib/sessionStore";
 
 interface StatCardProps {
   title: string;
@@ -55,8 +60,26 @@ function StatCard({
   );
 }
 
+function formatLastLogin(isoString: string): string {
+  const d = new Date(isoString);
+  return d.toLocaleString("en-US", {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 export default function Dashboard() {
   const { data: stats, isLoading } = useDashboardStats();
+  const announcement = sessionStore.getAnnouncement();
+  const [dismissAnnouncement, setDismissAnnouncement] = useState(false);
+  const [dismissLastLogin, setDismissLastLogin] = useState(false);
+
+  const lastLogin = getLastLoginTime();
 
   const fmt = (v: bigint | undefined) =>
     v !== undefined ? Number(v).toLocaleString() : "—";
@@ -70,12 +93,59 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Last login info banner */}
+      {lastLogin && !dismissLastLogin && (
+        <div
+          className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-blue-950/50 border border-blue-800/40 text-blue-300/80"
+          data-ocid="dashboard.last_login_state"
+        >
+          <Info className="h-3.5 w-3.5 shrink-0 text-blue-400/70" />
+          <p className="flex-1 text-xs">
+            <span className="font-medium">Last login:</span>{" "}
+            {formatLastLogin(lastLogin)}
+            <span className="text-blue-300/50 ml-2">—</span>
+            <span className="text-blue-300/50 ml-2">
+              If this wasn&apos;t you, contact your super admin immediately.
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setDismissLastLogin(true)}
+            className="shrink-0 hover:text-blue-200 transition-colors"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Announcement banner */}
+      {announcement && !dismissAnnouncement && (
+        <div
+          className="flex items-start gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-300"
+          data-ocid="dashboard.announcement.panel"
+        >
+          <p className="flex-1 text-sm">
+            <span className="font-semibold">Admin Notice: </span>
+            {announcement}
+          </p>
+          <button
+            type="button"
+            onClick={() => setDismissAnnouncement(true)}
+            className="shrink-0 hover:text-blue-100 transition-colors"
+            data-ocid="dashboard.announcement.close_button"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div>
         <h1 className="text-2xl font-display font-bold text-foreground">
           Dashboard
         </h1>
         <p className="text-muted-foreground text-sm mt-0.5">
-          Overview of your platform's activity
+          Overview of your platform&apos;s activity
         </p>
       </div>
 

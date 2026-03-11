@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -33,14 +34,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertCircle,
   ArrowDownLeft,
   ArrowUpRight,
   CheckCircle,
+  Clock,
   CreditCard,
   Loader2,
   Plus,
+  SendHorizonal,
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
@@ -53,6 +57,8 @@ import {
   usePayments,
   useSetStripeConfig,
 } from "../hooks/useQueries";
+import * as sessionStore from "../lib/sessionStore";
+import type { PaymentRequest } from "../lib/sessionStore";
 
 function formatDate(ts: bigint) {
   return new Date(Number(ts) / 1_000_000).toLocaleDateString("en-KE", {
@@ -66,6 +72,15 @@ const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("en-KE", { style: "currency", currency: "KES" }).format(
     v,
   );
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleString("en-KE", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function AddPaymentDialog({ onClose }: { onClose: () => void }) {
   const addPayment = useAddPayment();
@@ -319,6 +334,191 @@ function StripeTab() {
   );
 }
 
+function TransactionRequestsTab() {
+  const [requests, setRequests] = useState<PaymentRequest[]>(() =>
+    sessionStore.getPaymentRequests(),
+  );
+  const [form, setForm] = useState({
+    description: "",
+    amount: "",
+    reason: "",
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.description || !form.amount || !form.reason) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+    sessionStore.addPaymentRequest({
+      description: form.description,
+      amount: Number.parseFloat(form.amount),
+      reason: form.reason,
+    });
+    sessionStore.addAuditEntry(
+      "payment-request",
+      `Requested: ${form.description} — KES ${form.amount}`,
+    );
+    setRequests(sessionStore.getPaymentRequests());
+    setForm({ description: "", amount: "", reason: "" });
+    toast.success("Request submitted for super admin approval");
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Info banner */}
+      <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3">
+        <Clock className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+        <p className="text-sm text-amber-300">
+          Transaction requests must be approved by the{" "}
+          <strong>Super Admin</strong> before payment goes out. The super admin
+          reviews and approves all requests in the Super Admin panel.
+        </p>
+      </div>
+
+      {/* Request form */}
+      <Card className="border-border shadow-card">
+        <CardHeader>
+          <CardTitle className="text-base font-display flex items-center gap-2">
+            <SendHorizonal className="h-4 w-4 text-primary" />
+            Submit Transaction Request
+          </CardTitle>
+          <CardDescription>
+            Request an outgoing payment — super admin approval required
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="req-desc">Description *</Label>
+              <Input
+                id="req-desc"
+                value={form.description}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, description: e.target.value }))
+                }
+                placeholder="What is this payment for?"
+                data-ocid="payments.txreq.input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="req-amount">Amount (KES) *</Label>
+              <Input
+                id="req-amount"
+                type="number"
+                step="0.01"
+                value={form.amount}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, amount: e.target.value }))
+                }
+                placeholder="0.00"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="req-reason">Reason *</Label>
+              <Textarea
+                id="req-reason"
+                value={form.reason}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, reason: e.target.value }))
+                }
+                placeholder="Explain why this payment should be made..."
+                rows={3}
+                data-ocid="payments.txreq.textarea"
+              />
+            </div>
+            <Button
+              type="submit"
+              className="gap-2"
+              data-ocid="payments.txreq.submit_button"
+            >
+              <SendHorizonal className="h-4 w-4" />
+              Submit Request
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Previous requests table */}
+      {requests.length > 0 && (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <Table data-ocid="payments.txreq.table">
+            <TableHeader>
+              <TableRow className="bg-muted/40">
+                <TableHead className="text-xs uppercase tracking-wider font-semibold">
+                  Description
+                </TableHead>
+                <TableHead className="text-xs uppercase tracking-wider font-semibold">
+                  Amount
+                </TableHead>
+                <TableHead className="text-xs uppercase tracking-wider font-semibold hidden sm:table-cell">
+                  Requested
+                </TableHead>
+                <TableHead className="text-xs uppercase tracking-wider font-semibold">
+                  Status
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {requests
+                .slice()
+                .reverse()
+                .map((req, idx) => (
+                  <TableRow
+                    key={req.id}
+                    data-ocid={`payments.txreq.item.${idx + 1}`}
+                    className="hover:bg-muted/20"
+                  >
+                    <TableCell className="font-medium text-sm">
+                      <div>
+                        {req.description}
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                          {req.reason}
+                        </p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-semibold text-sm">
+                      {fmtKES(req.amount)}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
+                      {fmtTime(req.requestedAt)}
+                    </TableCell>
+                    <TableCell>
+                      {req.status === "pending" && (
+                        <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/20 text-xs">
+                          Awaiting Approval
+                        </Badge>
+                      )}
+                      {req.status === "approved" && (
+                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/20 text-xs">
+                          Approved
+                        </Badge>
+                      )}
+                      {req.status === "rejected" && (
+                        <div>
+                          <Badge className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/20 text-xs">
+                            Rejected
+                          </Badge>
+                          {req.adminNote && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {req.adminNote}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const fmtKES = fmtCurrency;
+
 function ManualPaymentsTab() {
   const { data: payments = [], isLoading } = usePayments();
   const deletePayment = useDeletePayment();
@@ -393,6 +593,11 @@ function ManualPaymentsTab() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="p-3 rounded-lg bg-muted/30 border border-border text-xs text-muted-foreground">
+        💡 For outgoing payments requiring approval, use the{" "}
+        <strong className="text-foreground">Transaction Requests</strong> tab.
       </div>
 
       <div className="flex justify-end">
@@ -544,12 +749,18 @@ export default function Payments() {
           <TabsTrigger value="stripe" data-ocid="payments.stripe.tab">
             Stripe Payments
           </TabsTrigger>
+          <TabsTrigger value="requests" data-ocid="payments.requests.tab">
+            Transaction Requests
+          </TabsTrigger>
           <TabsTrigger value="manual" data-ocid="payments.manual.tab">
             Manual Payments
           </TabsTrigger>
         </TabsList>
         <TabsContent value="stripe" className="mt-5">
           <StripeTab />
+        </TabsContent>
+        <TabsContent value="requests" className="mt-5">
+          <TransactionRequestsTab />
         </TabsContent>
         <TabsContent value="manual" className="mt-5">
           <ManualPaymentsTab />

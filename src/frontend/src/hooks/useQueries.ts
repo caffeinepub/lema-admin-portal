@@ -51,6 +51,28 @@ export function useUpdateOrderStatus() {
   });
 }
 
+export function useCreateOrder() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      customerName: string;
+      customerEmail: string;
+      items: string;
+      totalAmount: number;
+    }) => {
+      if (!actor) throw new Error("No actor");
+      return actor.createOrder(
+        args.customerName,
+        args.customerEmail,
+        args.items,
+        args.totalAmount,
+      );
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orders"] }),
+  });
+}
+
 export function usePartners() {
   const { actor, isFetching } = useActor();
   return useQuery({

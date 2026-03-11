@@ -1,3 +1,14 @@
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -15,10 +26,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ShoppingCart } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, Plus, ShoppingCart } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { useOrders, useUpdateOrderStatus } from "../hooks/useQueries";
+import {
+  useCreateOrder,
+  useOrders,
+  useUpdateOrderStatus,
+} from "../hooks/useQueries";
 
 const STATUS_OPTIONS = [
   "pending",
@@ -30,13 +46,13 @@ const STATUS_OPTIONS = [
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    processing: "bg-blue-100 text-blue-800 border-blue-200",
-    shipped: "bg-purple-100 text-purple-800 border-purple-200",
-    delivered: "bg-green-100 text-green-800 border-green-200",
-    cancelled: "bg-red-100 text-red-800 border-red-200",
+    pending: "bg-yellow-900/40 text-yellow-300 border-yellow-700",
+    processing: "bg-blue-900/40 text-blue-300 border-blue-700",
+    shipped: "bg-purple-900/40 text-purple-300 border-purple-700",
+    delivered: "bg-green-900/40 text-green-300 border-green-700",
+    cancelled: "bg-red-900/40 text-red-300 border-red-700",
   };
-  return map[status] ?? "bg-gray-100 text-gray-800 border-gray-200";
+  return map[status] ?? "bg-muted text-muted-foreground border-border";
 }
 
 function formatDate(ts: bigint) {
@@ -45,6 +61,128 @@ function formatDate(ts: bigint) {
     month: "short",
     day: "numeric",
   });
+}
+
+function NewOrderDialog() {
+  const [open, setOpen] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [items, setItems] = useState("");
+  const [totalAmount, setTotalAmount] = useState("");
+  const createOrder = useCreateOrder();
+
+  const handleSubmit = async () => {
+    if (!customerName || !customerEmail || !items || !totalAmount) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    try {
+      await createOrder.mutateAsync({
+        customerName,
+        customerEmail,
+        items,
+        totalAmount: Number(totalAmount),
+      });
+      toast.success("Order created successfully");
+      setOpen(false);
+      setCustomerName("");
+      setCustomerEmail("");
+      setItems("");
+      setTotalAmount("");
+    } catch {
+      toast.error("Failed to create order");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          className="gap-1.5"
+          data-ocid="orders.open_modal_button"
+        >
+          <Plus className="h-4 w-4" />
+          New Order
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        className="bg-card border-border"
+        data-ocid="orders.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="font-display">Create New Order</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="cname">Customer Name</Label>
+            <Input
+              id="cname"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="Jane Doe"
+              className="bg-muted/40 border-border"
+              data-ocid="orders.input"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cemail">Customer Email</Label>
+            <Input
+              id="cemail"
+              type="email"
+              value={customerEmail}
+              onChange={(e) => setCustomerEmail(e.target.value)}
+              placeholder="jane@example.com"
+              className="bg-muted/40 border-border"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="citems">Items</Label>
+            <Textarea
+              id="citems"
+              value={items}
+              onChange={(e) => setItems(e.target.value)}
+              placeholder="Running Shoes x1, Sports Jersey x2"
+              className="bg-muted/40 border-border resize-none"
+              rows={3}
+              data-ocid="orders.textarea"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ctotal">Total Amount (KES)</Label>
+            <Input
+              id="ctotal"
+              type="number"
+              min="0"
+              value={totalAmount}
+              onChange={(e) => setTotalAmount(e.target.value)}
+              placeholder="5000"
+              className="bg-muted/40 border-border"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            data-ocid="orders.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={createOrder.isPending}
+            data-ocid="orders.submit_button"
+          >
+            {createOrder.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            {createOrder.isPending ? "Creating..." : "Create Order"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function Orders() {
@@ -75,8 +213,11 @@ export default function Orders() {
             Track and manage customer orders
           </p>
         </div>
-        <div className="text-sm text-muted-foreground">
-          {orders.length} total orders
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">
+            {orders.length} total orders
+          </span>
+          <NewOrderDialog />
         </div>
       </div>
 

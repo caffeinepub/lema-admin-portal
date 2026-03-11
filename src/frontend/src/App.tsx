@@ -1,83 +1,202 @@
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Toaster } from "@/components/ui/sonner";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Layout from "./components/Layout";
-import { useActor } from "./hooks/useActor";
-import { useInternetIdentity } from "./hooks/useInternetIdentity";
-import { useIsAdmin } from "./hooks/useQueries";
+import * as sessionStore from "./lib/sessionStore";
 import CustomerService from "./pages/CustomerService";
 import Dashboard from "./pages/Dashboard";
 import LoginPage from "./pages/LoginPage";
 import Orders from "./pages/Orders";
 import Partners from "./pages/Partners";
 import Payments from "./pages/Payments";
+import PerfStore from "./pages/PerfStore";
+import SellerSubmissions from "./pages/SellerSubmissions";
+import SuperAdminPage from "./pages/SuperAdminPage";
 
 export type Page =
   | "dashboard"
   | "orders"
   | "partners"
+  | "submissions"
   | "payments"
-  | "customerservice";
+  | "customerservice"
+  | "perfstore"
+  | "superadmin";
 
-function LoadingScreen() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="space-y-3 w-64">
-        <Skeleton className="h-8 w-48 mx-auto" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-3/4 mx-auto" />
-      </div>
-    </div>
-  );
-}
+const INACTIVITY_WARN_MS = 28 * 60 * 1000; // 28 min
+const INACTIVITY_LOGOUT_MS = 30 * 60 * 1000; // 30 min
+const SESSION_CHECK_INTERVAL_MS = 30 * 1000; // 30 sec
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
-  const { identity, isInitializing } = useInternetIdentity();
-  const { isFetching } = useActor();
-  const { data: isAdmin, isLoading: isAdminLoading } = useIsAdmin();
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(
+    () => sessionStorage.getItem("lema_session") === "true",
+  );
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+  const [warningCountdown, setWarningCountdown] = useState(120); // 2 min in seconds
 
-  if (isInitializing || (identity && isFetching)) {
-    return <LoadingScreen />;
-  }
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
 
-  if (!identity) {
+  const handleLogout = useCallback(() => {
+    const sessionId = sessionStorage.getItem("lema_session_id");
+    if (sessionId) sessionStore.terminateSession(sessionId);
+    sessionStore.addAuditEntry("logout", "Admin signed out");
+    sessionStorage.removeItem("lema_session");
+    sessionStorage.removeItem("lema_session_id");
+    setIsLoggedIn(false);
+    setShowTimeoutWarning(false);
+  }, []);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+    if (countdownIntervalRef.current)
+      clearInterval(countdownIntervalRef.current);
+    setShowTimeoutWarning(false);
+
+    warnTimerRef.current = setTimeout(() => {
+      setWarningCountdown(120);
+      setShowTimeoutWarning(true);
+      countdownIntervalRef.current = setInterval(() => {
+        setWarningCountdown((prev) => {
+          if (prev <= 1) {
+            if (countdownIntervalRef.current)
+              clearInterval(countdownIntervalRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }, INACTIVITY_WARN_MS);
+
+    inactivityTimerRef.current = setTimeout(() => {
+      sessionStore.addAuditEntry("logout", "Auto-logged out due to inactivity");
+      handleLogout();
+    }, INACTIVITY_LOGOUT_MS);
+  }, [handleLogout]);
+
+  // Attach inactivity listeners
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    resetInactivityTimer();
+    const events = ["mousemove", "keydown", "click", "scroll"] as const;
+    const handler = () => resetInactivityTimer();
+    for (const e of events) window.addEventListener(e, handler);
+    return () => {
+      for (const e of events) window.removeEventListener(e, handler);
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+      if (countdownIntervalRef.current)
+        clearInterval(countdownIntervalRef.current);
+    };
+  }, [isLoggedIn, resetInactivityTimer]);
+
+  // Periodic single-session check
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const interval = setInterval(() => {
+      const sessionId = sessionStorage.getItem("lema_session_id");
+      if (sessionId && !sessionStore.isSessionActive(sessionId)) {
+        sessionStore.addAuditEntry(
+          "logout",
+          "Session terminated externally (force-logout)",
+        );
+        sessionStorage.removeItem("lema_session");
+        sessionStorage.removeItem("lema_session_id");
+        setIsLoggedIn(false);
+        setShowTimeoutWarning(false);
+      }
+    }, SESSION_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isLoggedIn]);
+
+  const handleLoginSuccess = () => {
+    sessionStorage.setItem("lema_session", "true");
+    // Session ID is set in LoginPage after clearAllActiveSessions + registerSession
+    // If it wasn't set (e.g. old code path), register now
+    if (!sessionStorage.getItem("lema_session_id")) {
+      sessionStore.clearAllActiveSessions();
+      const session = sessionStore.registerSession("Admin User");
+      sessionStorage.setItem("lema_session_id", session.id);
+      sessionStore.addAuditEntry("login", "Admin logged in");
+    }
+    setIsLoggedIn(true);
+  };
+
+  if (!isLoggedIn) {
     return (
       <>
-        <LoginPage />
+        <LoginPage onLoginSuccess={handleLoginSuccess} />
         <Toaster />
       </>
     );
   }
 
-  if (isAdminLoading) {
-    return <LoadingScreen />;
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-3">
-          <h2 className="text-2xl font-display text-foreground">
-            Access Denied
-          </h2>
-          <p className="text-muted-foreground">
-            You do not have admin access to this portal.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
-      <Layout currentPage={page} onNavigate={setPage}>
+      <Layout currentPage={page} onNavigate={setPage} onLogout={handleLogout}>
         {page === "dashboard" && <Dashboard />}
         {page === "orders" && <Orders />}
         {page === "partners" && <Partners />}
+        {page === "submissions" && <SellerSubmissions />}
         {page === "payments" && <Payments />}
         {page === "customerservice" && <CustomerService />}
+        {page === "perfstore" && <PerfStore />}
+        {page === "superadmin" && <SuperAdminPage />}
       </Layout>
+
+      {/* Session timeout warning dialog */}
+      <AlertDialog open={showTimeoutWarning}>
+        <AlertDialogContent
+          className="bg-card border-border"
+          data-ocid="timeout.dialog"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-foreground flex items-center gap-2">
+              <span className="text-amber-400">⏱</span> Session Expiring Soon
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              You have been inactive for 28 minutes. For security, you will be
+              automatically logged out in{" "}
+              <span className="font-bold text-amber-400 tabular-nums">
+                {Math.floor(warningCountdown / 60)}:
+                {String(warningCountdown % 60).padStart(2, "0")}
+              </span>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={handleLogout}
+              className="border-border text-muted-foreground hover:bg-muted"
+              data-ocid="timeout.logout_button"
+            >
+              Log Out Now
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={resetInactivityTimer}
+              className="bg-sidebar hover:bg-sidebar/90 text-sidebar-foreground"
+              data-ocid="timeout.stay_button"
+            >
+              Stay Logged In
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Toaster />
     </>
   );
